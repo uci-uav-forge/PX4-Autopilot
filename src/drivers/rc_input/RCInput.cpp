@@ -395,14 +395,13 @@ void RCInput::Run()
 
 		// This block scans for a supported serial RC input and locks onto the first one found
 		// Scan for 300 msec, then switch protocol
-		constexpr hrt_abstime rc_scan_max = 300_ms;
+		static constexpr hrt_abstime rc_scan_max = 300_ms;
 
-		unsigned frame_drops = 0;
-
-		// TODO: needs work (poll _rcs_fd)
-		// int ret = poll(fds, sizeof(fds) / sizeof(fds[0]), 100);
-		// then update priority to SCHED_PRIORITY_FAST_DRIVER
-		// read all available data from the serial RC input UART
+		// poll with 1 second timeout
+		pollfd fds[1];
+		fds[0].fd = _rcs_fd;
+		fds[0].events = POLLIN;
+		int ret = poll(fds, 1, 1000);
 
 		// read all available data from the serial RC input UART
 		int newBytes = ::read(_rcs_fd, &_rcs_buf[0], RC_MAX_BUFFER_SIZE);
@@ -410,6 +409,8 @@ void RCInput::Run()
 		if (newBytes > 0) {
 			_bytes_rx += newBytes;
 		}
+
+		unsigned frame_drops = 0;
 
 		switch (_rc_scan_state) {
 		case RC_SCAN_SBUS:
@@ -730,6 +731,14 @@ void RCInput::Run()
 		if (_report_lock && _rc_scan_locked) {
 			_report_lock = false;
 			PX4_INFO("RC scan: %s RC input locked", RC_SCAN_STRING[_rc_scan_state]);
+		}
+
+		// reschedule immediately if RC is locked
+		if (_rc_scan_locked) {
+			ScheduleNow();
+
+		} else {
+			ScheduleDelayed(_current_update_interval);
 		}
 	}
 }
