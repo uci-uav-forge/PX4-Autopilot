@@ -794,6 +794,7 @@ FixedwingPositionControl::control_auto(const hrt_abstime &now, const Vector2d &c
 	const uint8_t position_sp_type = handle_setpoint_type(current_sp.type, current_sp);
 
 	_position_sp_type = position_sp_type;
+	Vector2f curr_pos_local{_local_pos.x, _local_pos.y};
 
 	switch (position_sp_type) {
 	case position_setpoint_s::SETPOINT_TYPE_IDLE:
@@ -803,15 +804,15 @@ FixedwingPositionControl::control_auto(const hrt_abstime &now, const Vector2d &c
 		break;
 
 	case position_setpoint_s::SETPOINT_TYPE_POSITION:
-		control_auto_position(now, dt, curr_pos, ground_speed, pos_sp_prev, current_sp);
+		control_auto_position(now, dt, curr_pos_local, ground_speed, pos_sp_prev, current_sp);
 		break;
 
 	case position_setpoint_s::SETPOINT_TYPE_VELOCITY:
-		control_auto_velocity(now, dt, curr_pos, ground_speed, pos_sp_prev, pos_sp_curr);
+		control_auto_velocity(now, dt, ground_speed, pos_sp_prev, pos_sp_curr);
 		break;
 
 	case position_setpoint_s::SETPOINT_TYPE_LOITER:
-		control_auto_loiter(now, dt, curr_pos, ground_speed, pos_sp_prev, current_sp, pos_sp_next);
+		control_auto_loiter(now, dt, curr_pos_local, ground_speed, pos_sp_prev, current_sp, pos_sp_next);
 		break;
 
 	case position_setpoint_s::SETPOINT_TYPE_LAND:
@@ -1019,7 +1020,7 @@ FixedwingPositionControl::handle_setpoint_type(const uint8_t setpoint_type, cons
 }
 
 void
-FixedwingPositionControl::control_auto_position(const hrt_abstime &now, const float dt, const Vector2d &curr_pos,
+FixedwingPositionControl::control_auto_position(const hrt_abstime &now, const float dt, const Vector2f &curr_pos,
 		const Vector2f &ground_speed, const position_setpoint_s &pos_sp_prev, const position_setpoint_s &pos_sp_curr)
 {
 	const float acc_rad = _l1_control.switch_distance(500.0f);
@@ -1029,6 +1030,7 @@ FixedwingPositionControl::control_auto_position(const hrt_abstime &now, const fl
 
 	/* current waypoint (the one currently heading for) */
 	curr_wp = Vector2d(pos_sp_curr.lat, pos_sp_curr.lon);
+	Vector2f curr_wp_local = _global_local_proj_ref.project(pos_sp_curr.lat, pos_sp_curr.lon);
 
 	if (pos_sp_prev.valid) {
 		prev_wp(0) = pos_sp_prev.lat;
@@ -1042,6 +1044,8 @@ FixedwingPositionControl::control_auto_position(const hrt_abstime &now, const fl
 		prev_wp(0) = pos_sp_curr.lat;
 		prev_wp(1) = pos_sp_curr.lon;
 	}
+
+	Vector2f prev_wp_local = _global_local_proj_ref.project(prev_wp(0), prev_wp(1));
 
 	float tecs_fw_thr_min;
 	float tecs_fw_thr_max;
@@ -1103,10 +1107,7 @@ FixedwingPositionControl::control_auto_position(const hrt_abstime &now, const fl
 		}
 	}
 
-	Vector2f curr_pos_local{_local_pos.x, _local_pos.y};
-	Vector2f curr_wp_local = _global_local_proj_ref.project(pos_sp_curr.lat, pos_sp_curr.lon);
-	Vector2f prev_wp_local = _global_local_proj_ref.project(prev_wp(0), prev_wp(1));
-	_l1_control.navigate_waypoints(prev_wp_local, curr_wp_local, curr_pos_local, get_nav_speed_2d(ground_speed));
+	_l1_control.navigate_waypoints(prev_wp_local, curr_wp_local, curr_pos, get_nav_speed_2d(ground_speed));
 	_att_sp.roll_body = _l1_control.get_roll_setpoint();
 	_att_sp.yaw_body = _yaw; // yaw is not controlled, so set setpoint to current yaw
 
@@ -1122,8 +1123,8 @@ FixedwingPositionControl::control_auto_position(const hrt_abstime &now, const fl
 }
 
 void
-FixedwingPositionControl::control_auto_velocity(const hrt_abstime &now, const float dt, const Vector2d &curr_pos,
-		const Vector2f &ground_speed, const position_setpoint_s &pos_sp_prev, const position_setpoint_s &pos_sp_curr)
+FixedwingPositionControl::control_auto_velocity(const hrt_abstime &now, const float dt, const Vector2f &ground_speed,
+		const position_setpoint_s &pos_sp_prev, const position_setpoint_s &pos_sp_curr)
 {
 	float tecs_fw_thr_min;
 	float tecs_fw_thr_max;
@@ -1175,7 +1176,7 @@ FixedwingPositionControl::control_auto_velocity(const hrt_abstime &now, const fl
 }
 
 void
-FixedwingPositionControl::control_auto_loiter(const hrt_abstime &now, const float dt, const Vector2d &curr_pos,
+FixedwingPositionControl::control_auto_loiter(const hrt_abstime &now, const float dt, const Vector2f &curr_pos,
 		const Vector2f &ground_speed, const position_setpoint_s &pos_sp_prev, const position_setpoint_s &pos_sp_curr,
 		const position_setpoint_s &pos_sp_next)
 {
@@ -1239,9 +1240,8 @@ FixedwingPositionControl::control_auto_loiter(const hrt_abstime &now, const floa
 		loiter_direction = (loiter_radius > 0) ? 1 : -1;
 	}
 
-	Vector2f curr_pos_local{_local_pos.x, _local_pos.y};
 	Vector2f curr_wp_local = _global_local_proj_ref.project(pos_sp_curr.lat, pos_sp_curr.lon);
-	_l1_control.navigate_loiter(curr_wp_local, curr_pos_local, loiter_radius, loiter_direction,
+	_l1_control.navigate_loiter(curr_wp_local, curr_pos, loiter_radius, loiter_direction,
 				    get_nav_speed_2d(ground_speed));
 
 	_att_sp.roll_body = _l1_control.get_roll_setpoint();
