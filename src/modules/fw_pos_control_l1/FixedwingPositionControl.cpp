@@ -1103,7 +1103,10 @@ FixedwingPositionControl::control_auto_position(const hrt_abstime &now, const fl
 		}
 	}
 
-	_l1_control.navigate_waypoints(prev_wp, curr_wp, curr_pos, get_nav_speed_2d(ground_speed));
+	Vector2f curr_pos_local{_local_pos.x, _local_pos.y};
+	Vector2f curr_wp_local = _global_local_proj_ref.project(pos_sp_curr.lat, pos_sp_curr.lon);
+	Vector2f prev_wp_local = _global_local_proj_ref.project(prev_wp(0), prev_wp(1));
+	_l1_control.navigate_waypoints(prev_wp_local, curr_wp_local, curr_pos_local, get_nav_speed_2d(ground_speed));
 	_att_sp.roll_body = _l1_control.get_roll_setpoint();
 	_att_sp.yaw_body = _yaw; // yaw is not controlled, so set setpoint to current yaw
 
@@ -1236,7 +1239,10 @@ FixedwingPositionControl::control_auto_loiter(const hrt_abstime &now, const floa
 		loiter_direction = (loiter_radius > 0) ? 1 : -1;
 	}
 
-	_l1_control.navigate_loiter(curr_wp, curr_pos, loiter_radius, loiter_direction, get_nav_speed_2d(ground_speed));
+	Vector2f curr_pos_local{_local_pos.x, _local_pos.y};
+	Vector2f curr_wp_local = _global_local_proj_ref.project(pos_sp_curr.lat, pos_sp_curr.lon);
+	_l1_control.navigate_loiter(curr_wp_local, curr_pos_local, loiter_radius, loiter_direction,
+				    get_nav_speed_2d(ground_speed));
 
 	_att_sp.roll_body = _l1_control.get_roll_setpoint();
 	_att_sp.yaw_body = _yaw; // yaw is not controlled, so set setpoint to current yaw
@@ -1336,7 +1342,12 @@ FixedwingPositionControl::control_auto_takeoff(const hrt_abstime &now, const flo
 		 * Update navigation: _runway_takeoff returns the start WP according to mode and phase.
 		 * If we use the navigator heading or not is decided later.
 		 */
-		_l1_control.navigate_waypoints(_runway_takeoff.getStartWP(), curr_wp, curr_pos, ground_speed);
+		Vector2f curr_pos_local{_local_pos.x, _local_pos.y};
+		Vector2f curr_wp_local = _global_local_proj_ref.project(pos_sp_curr.lat, pos_sp_curr.lon);
+		Vector2f prev_wp_local = _global_local_proj_ref.project(_runway_takeoff.getStartWP()(0),
+					 _runway_takeoff.getStartWP()(1));
+
+		_l1_control.navigate_waypoints(prev_wp_local, curr_wp_local, curr_pos_local, get_nav_speed_2d(ground_speed));
 
 		// update tecs
 		const float takeoff_pitch_max_deg = _runway_takeoff.getMaxPitch(_param_fw_p_lim_max.get());
@@ -1392,8 +1403,12 @@ FixedwingPositionControl::control_auto_takeoff(const hrt_abstime &now, const flo
 		/* Set control values depending on the detection state */
 		if (_launch_detection_state != LAUNCHDETECTION_RES_NONE) {
 			/* Launch has been detected, hence we have to control the plane. */
+			Vector2f curr_pos_local{_local_pos.x, _local_pos.y};
+			Vector2f curr_wp_local = _global_local_proj_ref.project(pos_sp_curr.lat, pos_sp_curr.lon);
+			Vector2f prev_wp_local = _global_local_proj_ref.project(prev_wp(0), prev_wp(1));
 
-			_l1_control.navigate_waypoints(prev_wp, curr_wp, curr_pos, ground_speed);
+			_l1_control.navigate_waypoints(prev_wp_local, curr_wp_local, curr_pos_local, ground_speed);
+
 			_att_sp.roll_body = _l1_control.get_roll_setpoint();
 			_att_sp.yaw_body = _yaw; // yaw is not controlled, so set setpoint to current yaw
 
@@ -1546,8 +1561,12 @@ FixedwingPositionControl::control_auto_landing(const hrt_abstime &now, const flo
 		_l1_control.navigate_heading(_target_bearing, _yaw, ground_speed);
 
 	} else {
-		// normal navigation
-		_l1_control.navigate_waypoints(prev_wp, curr_wp, curr_pos, ground_speed);
+		Vector2f curr_pos_local{_local_pos.x, _local_pos.y};
+		Vector2f curr_wp_local = _global_local_proj_ref.project(pos_sp_curr.lat, pos_sp_curr.lon);
+		Vector2f prev_wp_local = _global_local_proj_ref.project(prev_wp(0), prev_wp(1));
+
+		_l1_control.navigate_waypoints(prev_wp_local, curr_wp_local, curr_pos_local, ground_speed);
+
 	}
 
 	_att_sp.roll_body = _l1_control.get_roll_setpoint();
@@ -1873,7 +1892,10 @@ FixedwingPositionControl::control_manual_position(const hrt_abstime &now, const 
 			Vector2d curr_wp{_hdg_hold_curr_wp.lat, _hdg_hold_curr_wp.lon};
 
 			/* populate l1 control setpoint */
-			_l1_control.navigate_waypoints(prev_wp, curr_wp, curr_pos, ground_speed);
+			Vector2f curr_pos_local{_local_pos.x, _local_pos.y};
+			Vector2f curr_wp_local = _global_local_proj_ref.project(curr_wp(0), curr_wp(1));
+			Vector2f prev_wp_local = _global_local_proj_ref.project(prev_wp(0), prev_wp(1));
+			_l1_control.navigate_waypoints(prev_wp_local, curr_wp_local, curr_pos_local, ground_speed);
 
 			_att_sp.roll_body = _l1_control.get_roll_setpoint();
 			_att_sp.yaw_body = _yaw; // yaw is not controlled, so set setpoint to current yaw
