@@ -42,7 +42,6 @@
 # Attempt to Implement a basic version of Nithish's basic coverage algorithm
 
 from __future__ import division
-from tkinter import Grid
 
 PKG = 'px4'
 
@@ -55,17 +54,15 @@ from px4tools import ulog
 import sys
 from mavros import mavlink
 from mavros_msgs.msg import Mavlink, Waypoint, WaypointReached
+from sensor_msgs.msg import NavSatFix
 from mavros_test_common import MavrosTestCommon
 from pymavlink import mavutil
 from six.moves import xrange
 from threading import Thread
 
-from tkinter import *
+from CoveragePathPlanning import Grid
 
 import tkinter as tk
-import time
-import math
-from CoveragePathPlanning import Grid
 
 def get_last_log():
     try:
@@ -79,29 +76,14 @@ def get_last_log():
     last_log = sorted(glob.glob(os.path.join(last_log_dir, '*.ulg')))[-1]
     return last_log
 
-
-def read_mission(mission_filename):
-    wps = []
-    with open(mission_filename, 'r') as f:
-        for waypoint in read_plan_file(f):
-            wps.append(waypoint)
-            rospy.logdebug(waypoint)
-
-    # set first item to current
-    if wps:
-        wps[0].is_current = True
-
-    return wps
-
-def implement_mission(mission_implementation):
-    wps = []
-
+# Setup the Grid walls for Coverage Planning
+# Code copied and modified from Nitish's Coverage Planning Solution
+def coverage_setup():
     width = 800
     height = 800
     line_width = 1
     dim = str(width+line_width) + "x" + str(height+line_width)
 
-    rospy.logdebug("Estoy Aqui 1")
 
     win = tk.Tk()
     win.title("Complete Cov")
@@ -133,15 +115,33 @@ def implement_mission(mission_implementation):
         for j in range(5):
             g.setWall(20+i, 30+j)
 
-
-    rospy.logdebug("Estoy Aqui")
-
     g.getWidget().pack()
+    return g
 
-    endpoint = 3
+def read_mission(mission_filename):
+    wps = []
+    with open(mission_filename, 'r') as f:
+        for waypoint in read_plan_file(f):
+            wps.append(waypoint)
+            rospy.logdebug(waypoint)
+
+    # set first item to current
+    if wps:
+        wps[0].is_current = True
+
+    return wps
+
+def implement_mission(mission_implementation, current_global_position):
+    wps = []
+
+    # TODO: Modify to allow multiple implementation to be switched easily and preferably on the fly
+    g = coverage_setup()
+
+    endpoint = 10
+
     # Command 22 = Takeoff
     # Command 21 = Land
-    # COmmand 16 = ??? Just go to waypoint?
+    # Command 16 = Just go to waypoint?
     def chooseCommand(iteration):
         if iteration == 0:
             return 22
@@ -152,7 +152,8 @@ def implement_mission(mission_implementation):
 
     for i, coords in enumerate(g.coveragePath()):
         rospy.loginfo(coords)
-        convertedCoords = convert_to_geo(47.39773941040039, 8.5455904006958, coords)
+        # convertedCoords = convert_to_geo(47.39773941040039, 8.5455904006958, coords)
+        convertedCoords = convert_to_geo(current_global_position[1], current_global_position[0], coords)
         rospy.loginfo(convertedCoords)
         waypoint = Waypoint(
             is_current=False,
@@ -164,7 +165,7 @@ def implement_mission(mission_implementation):
             param4=None,
             x_lat=float(convertedCoords[0]),
             y_long=float(convertedCoords[1]),
-            z_alt=float(0 
+            z_alt=float(0
                             if i is endpoint else 10),
             autocontinue=bool(True)
         )
@@ -173,16 +174,16 @@ def implement_mission(mission_implementation):
 
         if i == endpoint:
             break
-    
+
     if wps:
         wps[0].is_current = True
 
     return wps
 
-def convert_to_geo(long, lang, coord):
-    rospy.loginfo(float(coord[0]*-0.0001335144))
-    rospy.loginfo(float(coord[0]*-0.0001335144) + float(long))
-    return (float(coord[0]*-0.0001335144) + long, float(coord[1]*0.00025177001) + lang)
+def convert_to_geo(lon, latt, coord):
+    rospy.loginfo(float(coord[0]*-0.0001335144) + float(latt))
+    rospy.loginfo(float(coord[1]*-0.0001335144) + float(lon))
+    return (float(coord[0]*-0.0001335144) + latt, float(coord[1]*0.00025177001) + lon)
 
 # Possibly here, give the coordinates that Nitish's code gives for
 # temporary demo
@@ -229,6 +230,20 @@ class MavrosMissionTest(MavrosTestCommon):
         self.mission_item_reached_sub = rospy.Subscriber(
             'mavros/mission/reached', WaypointReached,
             self.mission_item_reached_callback)
+        self.current_global_position = None
+        self.current_global_position_sub = rospy.Subscriber(
+            'mavros/global_position/global', NavSatFix,
+            self.current_global_position_callback)
+
+        # Wait for global position. Else, we run risk of running locally with extraneous coordinates
+        # Is while(1) the best solution?
+        while(1):
+            if(self.current_global_position != None):
+                break;
+
+        rospy.loginfo(self.current_global_position)
+
+
 
         # need to simulate heartbeat to prevent datalink loss detection
         self.hb_mav_msg = mavutil.mavlink.MAVLink_heartbeat_message(
@@ -258,6 +273,9 @@ class MavrosMissionTest(MavrosTestCommon):
         if self.mission_item_reached != data.wp_seq:
             rospy.loginfo("mission item reached: {0}".format(data.wp_seq))
             self.mission_item_reached = data.wp_seq
+
+    def current_global_position_callback(self, data):
+        self.current_global_position = (data.latitude, data.longitude, data.altitude)
 
     def distance_to_wp(self, lat, lon, alt):
         """alt(amsl): meters"""
@@ -347,7 +365,7 @@ class MavrosMissionTest(MavrosTestCommon):
         try:
             # Reading from mission file
             # wps = read_mission(mission_file)
-            wps = implement_mission("Coverage")
+            wps = implement_mission("Coverage", self.current_global_position)
         except IOError as e:
             self.fail(e)
 
@@ -418,6 +436,9 @@ if __name__ == '__main__':
     rospy.init_node('test_node', anonymous=True)
 
     name = "mavros_mission_test"
-    if len(sys.argv) > 1:
-        name += "-%s" % sys.argv[1]
+
+    # May use these if we use a file for sending waypoints
+    # if len(sys.argv) > 1:
+    #     name += "-%s" % sys.argv[1]
+
     rostest.rosrun(PKG, name, MavrosMissionTest)
