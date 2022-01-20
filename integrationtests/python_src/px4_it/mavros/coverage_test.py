@@ -137,7 +137,7 @@ def implement_mission(mission_implementation, current_global_position):
     # TODO: Modify to allow multiple implementation to be switched easily and preferably on the fly
     g = coverage_setup()
 
-    endpoint = 10
+    endpoint = 100
 
     # Command 22 = Takeoff
     # Command 21 = Land
@@ -153,7 +153,7 @@ def implement_mission(mission_implementation, current_global_position):
     for i, coords in enumerate(g.coveragePath()):
         rospy.loginfo(coords)
         # convertedCoords = convert_to_geo(47.39773941040039, 8.5455904006958, coords)
-        convertedCoords = convert_to_geo(current_global_position[1], current_global_position[0], coords)
+        convertedCoords = convert_to_geo(current_global_position[0], current_global_position[1], coords)
         rospy.loginfo(convertedCoords)
         waypoint = Waypoint(
             is_current=False,
@@ -180,7 +180,7 @@ def implement_mission(mission_implementation, current_global_position):
 
     return wps
 
-def convert_to_geo(lon, latt, coord):
+def convert_to_geo(latt, lon, coord):
     rospy.loginfo(float(coord[0]*-0.0001335144) + float(latt))
     rospy.loginfo(float(coord[1]*-0.0001335144) + float(lon))
     return (float(coord[0]*-0.0001335144) + latt, float(coord[1]*0.00025177001) + lon)
@@ -320,6 +320,7 @@ class MavrosMissionTest(MavrosTestCommon):
 
             # FCU advanced to the next mission item, or finished mission
             reached = (
+                # If the current mission is already ahead in index, we reached our waypoint already
                 # advanced to next wp
                 (index < self.mission_wp.current_seq)
                 # end of mission
@@ -348,41 +349,10 @@ class MavrosMissionTest(MavrosTestCommon):
             format(lat, lon, alt, pos_xy_d, pos_z_d, best_pos_xy_d,
                    best_pos_z_d, index, timeout))
 
-    #
-    # Test method
-    #
-    def test_mission(self):
-        """Test mission"""
-        if len(sys.argv) < 2:
-            self.fail("usage: mission_test.py mission_file")
-            return
-
-        self.mission_name = sys.argv[1]
-        mission_file = os.path.dirname(
-            os.path.realpath(__file__)) + "/missions/" + sys.argv[1]
-
-        rospy.loginfo("reading mission {0}".format(mission_file))
-        try:
-            # Reading from mission file
-            # wps = read_mission(mission_file)
-            wps = implement_mission("Coverage", self.current_global_position)
-        except IOError as e:
-            self.fail(e)
-
-        # make sure the simulation is ready to start the mission
-        self.wait_for_topics(60)
-        self.wait_for_landed_state(mavutil.mavlink.MAV_LANDED_STATE_ON_GROUND,
-                                   10, -1)
-        self.wait_for_mav_type(10)
-
-        # push waypoints to FCU and start mission
+    def confirm_waypoints(self, wps, indexOffset):
         self.send_wps(wps, 30)
-        self.log_topic_vars()
-        self.set_mode("AUTO.MISSION", 5)
-        self.set_arm(True, 5)
-
-        rospy.loginfo("run mission {0}".format(self.mission_name))
-        for index, waypoint in enumerate(wps):
+        for i, waypoint in enumerate(wps):
+            index = indexOffset + i
             # only check position for waypoints where this makes sense
             if (waypoint.frame == Waypoint.FRAME_GLOBAL_REL_ALT or
                     waypoint.frame == Waypoint.FRAME_GLOBAL):
@@ -411,6 +381,67 @@ class MavrosMissionTest(MavrosTestCommon):
                     waypoint.command == mavutil.mavlink.MAV_CMD_NAV_LAND):
                 self.wait_for_landed_state(
                     mavutil.mavlink.MAV_LANDED_STATE_ON_GROUND, 120, index)
+
+    #
+    # Test method
+    #
+    def test_mission(self):
+        """Test mission"""
+        if len(sys.argv) >= 2:
+            self.mission_name = sys.argv[1]
+            mission_file = os.path.dirname(
+                os.path.realpath(__file__)) + "/missions/" + sys.argv[1]
+            rospy.loginfo("reading mission {0}".format(mission_file))
+            try:
+                # Reading from mission file
+                wps = read_mission(mission_file)
+            except IOError as e:
+                self.fail(e)
+            return
+
+        else:
+            try:
+                # Reading from mission file
+                # wps = read_mission(mission_file)
+                wps = implement_mission("Coverage", self.current_global_position)
+            except IOError as e:
+                self.fail(e)
+
+        # make sure the simulation is ready to start the mission
+        self.wait_for_topics(60)
+        self.wait_for_landed_state(mavutil.mavlink.MAV_LANDED_STATE_ON_GROUND,
+                                   10, -1)
+        self.wait_for_mav_type(10)
+
+        # push waypoints to FCU and start mission
+
+        # tempWpsIndex = 0
+        # while(1):
+        #     if(tempWpsIndex + 10 > len(wps)):
+        #         break
+        #     else:
+        #         tempWpsIndex = tempWpsIndex + 10
+        #     self.send_wps(wps[tempWpsIndex-10:tempWpsIndex], 30)
+
+        # self.send_wps(wps, 30)
+
+        self.log_topic_vars()
+        # This needs to go somewhere else
+        self.clear_wps(5)
+
+        self.send_wps(list(wps[0:1]), 30)
+
+        # Makes the drone go as soon as it's armed?
+        self.set_mode("AUTO.MISSION", 5)
+        self.set_arm(True, 5)
+        rospy.loginfo("run mission {0}".format(self.mission_name))
+
+
+        waypointIndex = 1
+        waypointMax = 10
+        while(waypointIndex < len(wps)):
+            self.confirm_waypoints(wps[waypointIndex:(  len(wps) if (waypointIndex+waypointMax > len(wps)) else (waypointIndex + waypointMax))], waypointIndex)
+            waypointIndex = waypointIndex + waypointMax
 
         self.set_arm(False, 5)
         self.clear_wps(5)
