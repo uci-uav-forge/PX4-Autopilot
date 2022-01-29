@@ -53,7 +53,7 @@ import os
 from px4tools import ulog
 import sys
 from mavros import mavlink
-from mavros_msgs.msg import Mavlink, Waypoint, WaypointReached
+from mavros_msgs.msg import Mavlink, Waypoint, WaypointReached, ParamValue
 from sensor_msgs.msg import NavSatFix
 from mavros_test_common import MavrosTestCommon
 from pymavlink import mavutil
@@ -352,7 +352,8 @@ class MavrosMissionTest(MavrosTestCommon):
     def confirm_waypoints(self, wps, indexOffset):
         self.send_wps(wps, 30)
         for i, waypoint in enumerate(wps):
-            index = indexOffset + i
+            index = i
+            rospy.loginfo("Index:" + str(index))
             # only check position for waypoints where this makes sense
             if (waypoint.frame == Waypoint.FRAME_GLOBAL_REL_ALT or
                     waypoint.frame == Waypoint.FRAME_GLOBAL):
@@ -426,13 +427,14 @@ class MavrosMissionTest(MavrosTestCommon):
         # self.send_wps(wps, 30)
 
         self.log_topic_vars()
+
         # This needs to go somewhere else
         self.clear_wps(5)
 
         self.send_wps(list(wps[0:1]), 30)
 
-        # Makes the drone go as soon as it's armed?
         self.set_mode("AUTO.MISSION", 5)
+        # Arms the Device within 5 seconds, else, timeouts
         self.set_arm(True, 5)
         rospy.loginfo("run mission {0}".format(self.mission_name))
 
@@ -440,7 +442,9 @@ class MavrosMissionTest(MavrosTestCommon):
         waypointIndex = 1
         waypointMax = 10
         while(waypointIndex < len(wps)):
+            rospy.loginfo("Sending 10 Waypoints")
             self.confirm_waypoints(wps[waypointIndex:(  len(wps) if (waypointIndex+waypointMax > len(wps)) else (waypointIndex + waypointMax))], waypointIndex)
+            rospy.loginfo("Waypoints Done")
             waypointIndex = waypointIndex + waypointMax
 
         self.set_arm(False, 5)
